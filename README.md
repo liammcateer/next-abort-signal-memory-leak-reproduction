@@ -1,36 +1,35 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# middleware axios AbortSignal memory leak
 
-## Getting Started
+## Context
 
-First, run the development server:
+A memory leak has been identified when `AbortSignal` is used with `axios` in `middlware.ts`. This issue is not present when using `fetch` in `middleware.ts` or when using `axios` with `AbortSignal` in pages.  
+It seems that this was introduced in Next 15.4. This repo uses 15.5.5, and the issue is also present in canary 16.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+## Repo overview
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+This repo was created using `npx create-next-app@latest` with defaults selected.
+The repo also contains 4 pages that fetch data from a mock server and display some placeholder text on the screen.
+The mock server is a basic hello world `express` app. I chose to use an external app to avoid the next app calling itself.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Two of the pages - `/axios` and `/fetch` are server components which fetch data within the component, both using an `AbortSignal`
+The other two pages - `/middleware/axios` and `/middleware/fetch` trigger some fetching to happen in `middleware.ts`.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+All 4 places that data fetching occurs uses either `axios` or `fetch` with an `AbortSignal` provided, and the make a call to the mock server.
 
-## Learn More
+These 3 pages do not increase memory: `/axios`, `/fetch`, `/middleware/fetch`.
+The 4th page, `/middleware/axios` does cause a memory leak.
 
-To learn more about Next.js, take a look at the following resources:
+The start script has heapsnapshot dumping enabled via `NODE_OPTIONS="--heapsnapshot-signal=SIGUSR2"`
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Reproduction steps
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+1. Run `npm install`
+2. Build the next app: `npm run build`
+3. Run the mock server in a separate terminal window: `node mockServer.js`
+4. Start the next app: `npm run start`
+5. Make many requests (I do 1,000) to a single page
+6. Take a heap snapshot using `kill -USR2 <next-server PID>`. You can find the `PID` by running `ps aux | grep "next-server (v15.5.5)"`
+7. Open the heap snapshot in chrome dev tools and look for increasing memory
+8. Repeat steps 5-7 with all other pages.
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+You should notice that `/middleware/axios` is the only one that increases memory. You can also verify this by leaving the server running for a little bit and noticing that the memory is never returned.
